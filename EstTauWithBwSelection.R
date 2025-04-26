@@ -74,6 +74,274 @@
 ## -----------------------------------------------------------------------------
 ## -----------------------------------------------------------------------------
 EstTauWithBwSelection<-function(X0=0,X,D,Y,Hlist,HlistL2,rep=1,rhotype="L1",bw_type="Plug-in"){
+  EstTau<-function(x0=-0.4,X,D,Y,gma=0.5,bw1=0.04,bwNon1=0.04,bwM1=0.04,bwMM1=0.04,bw0=0.04,bwNon0=0.04,bwM0=0.04,bwMM0=0.04){
+    Step1RIPW<-function(X,D){
+      X=data.frame(X)
+      g=glm(D ~ .,data=X,family = "binomial")
+      coe=g$coefficients
+      piHat=predict(g,newdata = X,type = "response")
+      return(c(coe,piHat))
+    }
+    Step=Step1RIPW(X,D)
+    dimX=dim(X)[2]
+    StepAlpha=Step[(1:(dimX+1))]
+    StepPiHat=Step[-(1:(dimX+1))]
+    
+    alpha=0.00
+    D=subset(D,StepPiHat<=(1-alpha) & StepPiHat>=(alpha))
+    X=subset(X,StepPiHat<=(1-alpha) & StepPiHat>=(alpha))
+    Y=subset(Y,StepPiHat<=(1-alpha) & StepPiHat>=(alpha))
+    StepPiHat=subset(StepPiHat,StepPiHat<=(1-alpha) & StepPiHat>=(alpha))
+    
+    X1=subset(X[,1],D==1)
+    Y1=subset(Y,D==1)
+    piHat1=subset(StepPiHat,D==1)
+    
+    X0=subset(X[,1],D==0)
+    Y0=subset(Y,D==0)
+    piHat0=subset(StepPiHat,D==0)
+    
+    PdIpw<-function(x0=-0.4,gma=0.5,bw1=0.04,bwNon1=0.04,bwM1=0.04,bwMM1=0.04,bw0=0.04,bwNon0=0.04,bwM0=0.04,bwMM0=0.04){
+      
+      EstVar<-function(X0=0,X,D,Y,Pi,psitype="L2",h,mu1,mu0,sd1=1,sd0=1,AdptHuberEP=1){
+          alphanp<-function(h){
+            out=1/2/sqrt(pi)/h
+            return(out)
+          }
+          alpha=alphanp(h=h)
+          n=length(D)
+          
+          Psi<-function(psitype="L2",u,sd1){
+            
+            if(psitype=="L2"){
+              Out=u  
+            }
+            
+            if(psitype=="DP"){
+              Out=sqrt(1/sqrt(2*pi)*exp(-1/2*(u/sd1)^2))*(u)
+            }
+            
+            if(psitype=="Huber"){
+              c=1.547*sd1
+              Out=u*(abs(u)<c)+c*(u>=c)-c*(u<=-c)    
+            }
+            if(psitype=="Tukey"){
+              c=4.685*sd1
+              Out=u*(1-(u/c)^2)^2*(abs(u)<=c)
+            }
+            return(Out)
+          }
+          dPsi<-function(psitype="L2",u,sd1){
+            if(psitype=="L2"){
+              
+              Out=rep(1,length(u)) 
+            }
+            
+            if(psitype=="DP"){
+              Out=(-(u)^2)/(2*(2*pi)^1/4*sd1^2*exp((u/sd1)^2/4))+sqrt(1/sqrt(2*pi)*exp(-1/2*(u/sd1)^2))
+            }
+            if(psitype=="Huber"){
+              c=1.547*sd1
+              Out=1*(abs(u)<c) 
+            }
+            if(psitype=="Tukey"){
+              c=4.685*sd1
+              Out=(5*u^4-6*c^2*u^2+c^4)/c^4*(abs(u)<=c)
+              
+            }
+            return(Out)
+          }
+          PsiList1=Psi(psitype=psitype,u=(Y-mu1),sd1=sd1)
+          PsiList0=Psi(psitype=psitype,u=(Y-mu0),sd1=sd0)
+          dPsiList1=dPsi(psitype=psitype,u=(Y-mu1),sd1=sd1)
+          dPsiList0=dPsi(psitype=psitype,u=(Y-mu0),sd1=sd0)
+          
+          h1=dpill(X[,1],D/Pi*dPsiList1)
+          h0=dpill(X[,1],(1-D)/(1-Pi)*dPsiList0)
+          
+          K1=dnorm((X[,1]-X0)/(h1))/(h1)
+          K0=dnorm((X[,1]-X0)/(h0))/(h0)
+          Dn1=sum(K1*D/Pi*dPsiList1)/sum(K1)
+          Dn0=sum(K0*(1-D)/(1-Pi)*dPsiList0)/sum(K0)
+          
+          ht=dpill(X[,1],(D/Pi*PsiList1/Dn1-(1-D)/(1-Pi)*PsiList0/Dn0)^2)
+          Kt=dnorm((X[,1]-X0)/(ht))/(ht)
+          
+          hg=dpik(X[,1])
+          Kg=dnorm((X[,1]-X0)/(hg))/(hg)
+          
+          EstVar=alpha/n*(sum(Kt*(D/Pi*PsiList1/Dn1-(1-D)/(1-Pi)*PsiList0/Dn0)^2))/sum(Kt)/(sum(Kg)/n)
+          return(EstVar)
+        }
+      
+
+      
+      ##L2
+      h1=bwNon1
+      K1=dnorm((X1-x0)/h1)
+      l1=locLinSmootherC(X1, Y1, x0, h1, kernel=gaussK, weig = 1/piHat1)
+      mu1=l1$beta0
+      mu1LocalLinear=l1$beta0
+      mu1LL=mu1LocalLinear
+      
+      h0=bwNon0
+      K0=dnorm((X0-x0)/h0)
+      l0=locLinSmootherC(X0, Y0, x0, h0, kernel=gaussK, weig = 1/(1-piHat0))
+      mu0=l0$beta0
+      mu0LocalLinear=l0$beta0
+      mu0LL=mu0LocalLinear
+      
+      EstVarLL=EstVar(X0=x0,X=X,D=D,Y=Y,Pi=StepPiHat,psitype="L2",h=h1,mu1=mu1LL,mu0=mu0LL,sd1=3.466249,sd0=3.466249)
+      
+      tauLL=mu1LL-mu0LL
+      
+      ##Huber
+      h1=bwM1
+      K1=dnorm((X1-x0)/h1)
+      mu1=mu1LL
+      for(j in 1:1000){
+        e=Y1-mu1
+        sigmahat=mad(e)/0.6745
+        sd1=sigmahat
+        c=1.547*sigmahat
+        u=e
+        
+        Psi=(u*(abs(u)<=c)-c*(u<(-c))+c*(u>c))
+        dPsidu=(abs(u)<=c)
+        Wx=1:length(e)
+        for (i in 1:length(e)) {
+          if(u[i]==0){
+            Wx[i]=dPsidu[i]
+          }else{
+            Wx[i]=Psi[i]/u[i]    
+          }
+        }
+        
+        lm1=lm(Y1~1,weights=K1/piHat1*Wx)
+        mu1new=lm1$coefficients[1]
+        
+        convi<- abs(mu1new-mu1)
+        done <- (convi <= 1e-7)
+        
+        mu1=mu1new
+ 
+        if(done) break
+      }
+      mu1M=lm1$coefficients[1]
+      
+      h0=bwM0
+      K0=dnorm((X0-x0)/h0)
+      mu0=mu0LL
+      for(j in 1:1000){
+        e=Y0-mu0
+        sigmahat=mad(e)/0.6745
+        sd0=sigmahat
+        c=1.547*sigmahat
+        u=e
+        
+        Psi=(u*(abs(u)<=c)-c*(u<(-c))+c*(u>c))
+        dPsidu=(abs(u)<=c)
+        Wx=1:length(e)
+        for (i in 1:length(e)) {
+          if(u[i]==0){
+            Wx[i]=dPsidu[i]
+          }else{
+            Wx[i]=Psi[i]/u[i]    
+          }
+        }
+        
+        lm0=lm(Y0~1,weights=K0/(1-piHat0)*Wx)
+        mu0new=lm0$coefficients[1]
+        
+        convi<- abs(mu0new-mu0)
+        done <- (convi <= 1e-7)
+        
+        mu0=mu0new
+        
+        if(done) break
+      }
+      
+      mu0M=lm0$coefficients[1]
+      tauM=mu1M-mu0M
+      EstVarM=EstVar(X0=x0,X=X,D=D,Y=Y,Pi=StepPiHat,psitype="Huber",h=h1,mu1=mu1M,mu0=mu0M,sd1=sd1,sd0=sd0)
+      
+      ##PD gma=0.5
+      h1=bw1
+      K1=dnorm((X1-x0)/h1)
+      PowerDensity<-function(Y,mu,sd,gma){
+        return(dnorm(Y,mean=mu,sd=sd)^gma)
+      }
+      
+      for(j in 1:1000){
+        
+        sd1=1/0.675*median(abs(Y1-mu1))
+        
+        H1=PowerDensity(Y1,mu1,sd1,gma)
+        mu1new=sum(H1*Y1*K1/piHat1)/sum(H1*K1/piHat1)
+        
+        convi<- abs(mu1new-mu1)
+        done <- (convi <= 1e-7)
+        
+        mu1=mu1new
+        if(done) break
+      }
+      mu1PD=mu1
+      
+      
+      h0=bw0
+      K0=dnorm((X0-x0)/h0)
+      
+      for(j in 1:1000){
+        
+        sd0=1/0.675*median(abs(Y0-mu0))
+        
+        H0=PowerDensity(Y0,mu0,sd0,gma)
+        mu0new=sum(H0*Y0*K0/(1-piHat0))/sum(H0*K0/(1-piHat0))
+        
+        convi<- abs(mu0new-mu0)
+        done <- (convi <= 1e-7)
+        
+        mu0=mu0new
+        if(done) break
+      }
+      mu0PD=mu0
+      tauDP=mu1PD-mu0PD
+      
+      EstVarDP=EstVar(X0=x0,X=X,D=D,Y=Y,Pi=StepPiHat,psitype="DP",h=h1,mu1=mu1PD,mu0=mu0PD,sd1=sd1,sd0=sd0)
+      
+      
+      
+      #Tukey
+      h1=bwMM1
+      K1=dnorm((X1-x0)/h1)
+      
+      Mn1=rlm(Y1~1,weights = K1/piHat1,psi = psi.huber,method="MM",scale.est="MAD",wt.method = "case")
+      
+      sd1=Mn1$s
+      
+      mu1MM=Mn1$coefficients[1]
+      
+      h0=bwMM0
+      K0=dnorm((X0-x0)/h0)
+      
+      Mn0=rlm(Y0~1,weights = K0/(1-piHat0),psi = psi.bisquare,method="MM",scale.est="MAD",wt.method = "case")
+      sd0=Mn0$s
+
+      mu0MM=Mn0$coefficients[1]
+      
+      tauMM=mu1MM-mu0MM
+      
+      EstVarMM=EstVar(X0=x0,X=X,D=D,Y=Y,Pi=StepPiHat,psitype="Tukey",h=h1,mu1=mu1MM,mu0=mu0MM,sd1=sd1,sd0=sd0)
+      
+      
+      return(c(tauLL,tauDP,tauM,tauMM,mu1LL,mu1PD,mu1M,mu1MM,mu0LL,mu0PD,mu0M,mu0MM,EstVarLL,EstVarDP,EstVarM,EstVarMM))
+    }
+
+    l=lapply(X=x0,PdIpw,gma=gma,bw1=bw1,bwNon1=bwNon1,bwM1=bwM1,bwMM1=bwMM1,bw0=bw0,bwNon0=bwNon0,bwM0=bwM0,bwMM0=bwMM0)
+    
+    return(cbind(x0,matrix(unlist(l),ncol=16, byrow = TRUE)))
+  }
+ 
   SimOneLoop1<-function(X,D,Y,Hlist,method="DP",rhotype="L1"){
     CrossValidation1<-function(X,D,Y,Hlist,OutlierType="N",method="L2",rhotype="L1"){
       rho<-function(u,rhotype="L1"){
