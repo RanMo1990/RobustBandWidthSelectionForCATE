@@ -8,6 +8,13 @@ Developed a plug-in bandwidth formula accounting for:
 2.Heavy-tailed distributions and outlier-robust loss functions.
 3.Extended classical kernel regression plug-in methods to causal inference settings with weighted samples.
 
+🔧 Requirements
+This project uses the following R packages:
+  1.stats	Core R package for statistical modeling (glm)
+  2.MASS	For robust regression models via rlm() and psi.bisquare
+  3.robustbase	For functions like mad() used in robust scale estimation
+  4.KernSmooth	For kernel smoothing and plug-in bandwidth selection (dpill, dpik, cpblock, blkest)
+
 🧠 Key Technical Challenges
 Handling IPW weights inside kernel smoothing.
 Managing bias terms induced by robust losses and nonsymmetric error structures.
